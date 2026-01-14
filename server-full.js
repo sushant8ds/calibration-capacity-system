@@ -324,6 +324,22 @@ app.get('/api/alerts', async (req, res) => {
   }
 });
 
+// Acknowledge alert
+app.put('/api/alerts/:id/acknowledge', async (req, res) => {
+  try {
+    await database.acknowledgeAlert(req.params.id);
+    
+    // Broadcast acknowledgment
+    if (global.broadcast) {
+      global.broadcast({ type: 'alert_acknowledged', data: { alert_id: req.params.id } });
+    }
+    
+    res.json({ success: true, message: 'Alert acknowledged' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Export to Excel
 app.get('/api/export/excel', async (req, res) => {
   try {
