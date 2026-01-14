@@ -129,6 +129,117 @@ app.get('/api/gauges', async (req, res) => {
   }
 });
 
+// Get single gauge
+app.get('/api/gauges/:id', async (req, res) => {
+  try {
+    const profile = await database.getGaugeProfileById(req.params.id);
+    if (!profile) {
+      return res.status(404).json({ success: false, error: 'Gauge not found' });
+    }
+    const thresholds = await database.getCapacityThresholds();
+    const enriched = CapacityManager.enrichGaugeProfile(profile, thresholds);
+    res.json({ success: true, data: enriched });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update gauge
+app.put('/api/gauges/:id', async (req, res) => {
+  try {
+    const existing = await database.getGaugeProfileById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Gauge not found' });
+    }
+
+    const updates = {
+      ...req.body,
+      updated_at: new Date().toISOString()
+    };
+
+    await database.updateGaugeProfile(req.params.id, updates);
+
+    // Create audit entry
+    await database.createAuditEntry({
+      id: uuidv4(),
+      gauge_id: req.params.id,
+      action: 'update',
+      old_values: existing,
+      new_values: updates,
+      user: req.body.last_modified_by || 'System',
+      timestamp: updates.updated_at
+    });
+
+    // Regenerate alerts
+    const thresholds = await database.getCapacityThresholds();
+    const updated = await database.getGaugeProfileById(req.params.id);
+    const alerts = AlertManager.generateAlertsForGauge(updated, thresholds);
+    
+    // Delete old alerts for this gauge
+    const oldAlerts = await database.getAllAlerts();
+    for (const alert of oldAlerts) {
+      if (alert.gauge_id === req.params.id) {
+        await database.deleteAlert(alert.id);
+      }
+    }
+    
+    // Create new alerts
+    for (const alert of alerts) {
+      await database.createAlert(alert);
+    }
+
+    const enriched = CapacityManager.enrichGaugeProfile(updated, thresholds);
+    
+    // Broadcast update
+    if (global.broadcast) {
+      global.broadcast({ type: 'gauge_updated', data: enriched });
+    }
+
+    res.json({ success: true, data: enriched });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Delete gauge
+app.delete('/api/gauges/:id', async (req, res) => {
+  try {
+    const existing = await database.getGaugeProfileById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Gauge not found' });
+    }
+
+    await database.deleteGaugeProfile(req.params.id);
+
+    // Create audit entry
+    await database.createAuditEntry({
+      id: uuidv4(),
+      gauge_id: req.params.id,
+      action: 'delete',
+      old_values: existing,
+      user: 'System',
+      timestamp: new Date().toISOString()
+    });
+
+    // Delete associated alerts
+    const alerts = await database.getAllAlerts();
+    for (const alert of alerts) {
+      if (alert.gauge_id === req.params.id) {
+        await database.deleteAlert(alert.id);
+      }
+    }
+
+    // Broadcast deletion
+    if (global.broadcast) {
+      global.broadcast({ type: 'gauge_deleted', data: { gauge_id: req.params.id } });
+    }
+
+    res.json({ success: true, message: 'Gauge deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Dashboard stats
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
