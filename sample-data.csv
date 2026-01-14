@@ -1,0 +1,11 @@
+Gauge ID,Gauge Type,Calibration frequency (months),Last calibration date,Monthly usage,Produced quantity,Maximum capacity,Last modified by
+PRESS-001,Pressure Gauge,12,2024-01-15,50,750,1000,System Admin
+TEMP-002,Temperature Gauge,6,2024-06-01,25,400,800,Technician A
+FLOW-003,Flow Meter,18,2023-12-10,30,850,1000,Technician B
+PRESS-004,Pressure Gauge,12,2024-03-20,40,920,1000,System Admin
+TEMP-005,Temperature Gauge,6,2024-08-15,35,200,500,Technician A
+LEVEL-006,Level Sensor,24,2023-06-01,20,480,500,Technician C
+PRESS-007,Pressure Gauge,12,2024-02-28,60,950,1000,System Admin
+FLOW-008,Flow Meter,18,2024-01-05,45,300,600,Technician B
+TEMP-009,Temperature Gauge,6,2024-09-10,30,450,500,Technician A
+PRESS-010,Pressure Gauge,12,2024-04-12,55,800,1000,System Admin
