@@ -193,6 +193,15 @@ export class Database {
     });
   }
 
+  async deleteAlert(alertId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.db.run('DELETE FROM alerts WHERE id = ?', [alertId], function(err) {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+
   async deleteAllAlerts(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.db.run('DELETE FROM alerts', function(err) {
