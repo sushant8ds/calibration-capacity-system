@@ -129,6 +129,48 @@ app.get('/api/gauges', async (req, res) => {
   }
 });
 
+// Create new gauge
+app.post('/api/gauges', async (req, res) => {
+  try {
+    const now = new Date().toISOString();
+    const profile = {
+      ...req.body,
+      created_at: now,
+      updated_at: now
+    };
+
+    await database.createGaugeProfile(profile);
+
+    // Create audit entry
+    await database.createAuditEntry({
+      id: uuidv4(),
+      gauge_id: profile.gauge_id,
+      action: 'create',
+      new_values: profile,
+      user: req.body.last_modified_by || 'System',
+      timestamp: now
+    });
+
+    // Generate alerts
+    const thresholds = await database.getCapacityThresholds();
+    const alerts = AlertManager.generateAlertsForGauge(profile, thresholds);
+    for (const alert of alerts) {
+      await database.createAlert(alert);
+    }
+
+    const enriched = CapacityManager.enrichGaugeProfile(profile, thresholds);
+    
+    // Broadcast creation
+    if (global.broadcast) {
+      global.broadcast({ type: 'gauge_created', data: enriched });
+    }
+
+    res.json({ success: true, data: enriched });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Get single gauge
 app.get('/api/gauges/:id', async (req, res) => {
   try {
