@@ -1,3 +1,6 @@
+// Load environment variables
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -8,13 +11,22 @@ const { CapacityManager } = require('./dist/services/CapacityManager');
 const { AlertManager } = require('./dist/services/AlertManager');
 const { v4: uuidv4 } = require('uuid');
 const WebSocket = require('ws');
+const EmailService = require('./email-service');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Initialize database
+// Initialize services
 console.log('📦 Initializing database...');
 const database = new Database();
+const emailService = new EmailService(database);
+
+// Debug email configuration
+console.log('📧 Email configuration:');
+console.log(`  EMAIL_ENABLED: ${process.env.EMAIL_ENABLED}`);
+console.log(`  EMAIL_HOST: ${process.env.EMAIL_HOST}`);
+console.log(`  EMAIL_USER: ${process.env.EMAIL_USER}`);
+console.log(`  EMAIL_TO: ${process.env.EMAIL_TO}`);
 
 // Middleware
 app.use(cors());
@@ -99,6 +111,16 @@ app.post('/api/upload/import', upload.single('file'), async (req, res) => {
           const alerts = AlertManager.generateAlertsForGauge(profile, thresholds);
           for (const alert of alerts) {
             await database.createAlert(alert);
+            
+            // Send email notification for new alert
+            try {
+              const emailResult = await emailService.sendAlert(alert);
+              if (emailResult.success) {
+                console.log(`📧 Email notification sent for alert ${alert.id}`);
+              }
+            } catch (emailError) {
+              console.error('📧 Email notification failed:', emailError.message);
+            }
           }
 
           stats.inserted++;
@@ -156,6 +178,16 @@ app.post('/api/gauges', async (req, res) => {
     const alerts = AlertManager.generateAlertsForGauge(profile, thresholds);
     for (const alert of alerts) {
       await database.createAlert(alert);
+      
+      // Send email notification for new alert
+      try {
+        const emailResult = await emailService.sendAlert(alert);
+        if (emailResult.success) {
+          console.log(`📧 Email notification sent for alert ${alert.id}`);
+        }
+      } catch (emailError) {
+        console.error('📧 Email notification failed:', emailError.message);
+      }
     }
 
     const enriched = CapacityManager.enrichGaugeProfile(profile, thresholds);
@@ -228,6 +260,16 @@ app.put('/api/gauges/:id', async (req, res) => {
     // Create new alerts
     for (const alert of alerts) {
       await database.createAlert(alert);
+      
+      // Send email notification for new alert
+      try {
+        const emailResult = await emailService.sendAlert(alert);
+        if (emailResult.success) {
+          console.log(`📧 Email notification sent for alert ${alert.id}`);
+        }
+      } catch (emailError) {
+        console.error('📧 Email notification failed:', emailError.message);
+      }
     }
 
     const enriched = CapacityManager.enrichGaugeProfile(updated, thresholds);
@@ -327,7 +369,9 @@ app.get('/api/alerts', async (req, res) => {
 // Acknowledge alert
 app.put('/api/alerts/:id/acknowledge', async (req, res) => {
   try {
+    console.log(`📢 Acknowledging alert: ${req.params.id}`);
     await database.acknowledgeAlert(req.params.id);
+    console.log(`✅ Alert acknowledged successfully: ${req.params.id}`);
     
     // Broadcast acknowledgment
     if (global.broadcast) {
@@ -336,6 +380,7 @@ app.put('/api/alerts/:id/acknowledge', async (req, res) => {
     
     res.json({ success: true, message: 'Alert acknowledged' });
   } catch (error) {
+    console.error(`❌ Error acknowledging alert ${req.params.id}:`, error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -357,6 +402,186 @@ app.get('/api/export/excel', async (req, res) => {
   }
 });
 
+// Admin endpoints
+app.get('/api/admin/thresholds', async (req, res) => {
+  try {
+    const thresholds = await database.getCapacityThresholds();
+    res.json({ success: true, data: thresholds });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.put('/api/admin/thresholds', async (req, res) => {
+  try {
+    await database.updateCapacityThresholds(req.body);
+    res.json({ success: true, message: 'Thresholds updated successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/reset', async (req, res) => {
+  try {
+    await database.deleteAllGaugeProfiles();
+    await database.deleteAllAlerts();
+    
+    // Broadcast reset
+    if (global.broadcast) {
+      global.broadcast({ type: 'system_reset', message: 'System has been reset' });
+    }
+    
+    res.json({ success: true, message: 'System reset successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Email configuration endpoints
+app.get('/api/email/status', async (req, res) => {
+  try {
+    const status = await emailService.testConnection();
+    res.json({ success: true, data: status });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/email/test', async (req, res) => {
+  try {
+    const testAlert = {
+      id: 'test-' + Date.now(),
+      gauge_id: 'TEST-001',
+      type: 'test',
+      severity: 'medium',
+      message: 'This is a test email notification from the Calibration Management System',
+      created_at: new Date().toISOString()
+    };
+    
+    const result = await emailService.sendAlert(testAlert);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/email/summary', async (req, res) => {
+  try {
+    const alerts = await database.getAllAlerts();
+    const pendingAlerts = alerts.filter(a => !a.acknowledged);
+    
+    const result = await emailService.sendDailySummary(pendingAlerts);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Email configuration endpoints
+app.get('/api/email/config', async (req, res) => {
+  try {
+    const settings = await database.getEmailSettings();
+    // Don't send password in response
+    const safeSettings = { ...settings };
+    delete safeSettings.smtp_password;
+    res.json({ success: true, data: safeSettings });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.put('/api/email/config', async (req, res) => {
+  try {
+    const settings = req.body;
+    await database.updateEmailSettings(settings);
+    
+    // Restart email service with new settings
+    const newEmailService = new EmailService();
+    
+    res.json({ success: true, message: 'Email configuration updated successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Email settings management endpoints
+app.get('/api/email/settings', async (req, res) => {
+  try {
+    const settings = await database.getEmailSettings();
+    // Don't send password in response
+    const safeSettings = { ...settings };
+    delete safeSettings.smtp_password;
+    res.json({ success: true, data: safeSettings });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.put('/api/email/settings', async (req, res) => {
+  try {
+    await database.updateEmailSettings(req.body);
+    
+    // Reinitialize email service with new settings
+    const newEmailService = new EmailService(database);
+    
+    res.json({ success: true, message: 'Email settings updated successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Email recipient management endpoints
+app.get('/api/email/recipients', async (req, res) => {
+  try {
+    const settings = await database.getEmailSettings();
+    const recipients = settings.recipients ? settings.recipients.split(',').map(r => r.trim()).filter(r => r) : [];
+    res.json({ success: true, data: recipients });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/email/recipients', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ success: false, error: 'Valid email address required' });
+    }
+    
+    const settings = await database.getEmailSettings();
+    const currentRecipients = settings.recipients ? settings.recipients.split(',').map(r => r.trim()).filter(r => r) : [];
+    
+    if (currentRecipients.includes(email)) {
+      return res.status(400).json({ success: false, error: 'Email already exists in recipients list' });
+    }
+    
+    currentRecipients.push(email);
+    const updatedSettings = { ...settings, recipients: currentRecipients.join(', ') };
+    await database.updateEmailSettings(updatedSettings);
+    
+    res.json({ success: true, message: 'Recipient added successfully', data: currentRecipients });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.delete('/api/email/recipients/:email', async (req, res) => {
+  try {
+    const emailToRemove = decodeURIComponent(req.params.email);
+    
+    const settings = await database.getEmailSettings();
+    const currentRecipients = settings.recipients ? settings.recipients.split(',').map(r => r.trim()).filter(r => r) : [];
+    
+    const updatedRecipients = currentRecipients.filter(email => email !== emailToRemove);
+    const updatedSettings = { ...settings, recipients: updatedRecipients.join(', ') };
+    await database.updateEmailSettings(updatedSettings);
+    
+    res.json({ success: true, message: 'Recipient removed successfully', data: updatedRecipients });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Main page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/index.html'));
@@ -371,25 +596,37 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server is ready!`);
 });
 
-// WebSocket server
-const wss = new WebSocket.Server({ server });
+// WebSocket server setup
+const wss = new WebSocket.Server({ 
+  server,
+  path: '/ws'
+});
 
-wss.on('connection', (ws) => {
-  console.log('📡 WebSocket client connected');
+wss.on('connection', (ws, req) => {
+  console.log('📡 WebSocket client connected from:', req.connection.remoteAddress);
   ws.send(JSON.stringify({ type: 'connected', message: 'Real-time updates active' }));
   
   ws.on('close', () => {
     console.log('📡 WebSocket client disconnected');
   });
+  
+  ws.on('error', (error) => {
+    console.error('📡 WebSocket error:', error);
+  });
 });
 
 // Broadcast function
 global.broadcast = (data) => {
+  console.log('📡 Broadcasting to', wss.clients.size, 'clients:', data.type);
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(data));
+      try {
+        client.send(JSON.stringify(data));
+      } catch (error) {
+        console.error('📡 Error broadcasting to client:', error);
+      }
     }
   });
 };
 
-console.log('📡 WebSocket server initialized');
+console.log('📡 WebSocket server initialized on path /ws');

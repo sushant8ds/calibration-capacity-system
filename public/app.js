@@ -28,20 +28,25 @@ function initializeWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws`;
     
+    console.log('🔌 Connecting to WebSocket:', wsUrl);
+    
     try {
         ws = new WebSocket(wsUrl);
         
         ws.onopen = function() {
+            console.log('✅ WebSocket connected');
             updateConnectionStatus(true);
             showNotification('Connected to real-time updates', 'success');
         };
         
         ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
+            console.log('📨 WebSocket message:', data);
             handleWebSocketMessage(data);
         };
         
-        ws.onclose = function() {
+        ws.onclose = function(event) {
+            console.log('❌ WebSocket disconnected:', event.code, event.reason);
             updateConnectionStatus(false);
             showNotification('Real-time connection lost', 'warning');
             
@@ -50,11 +55,11 @@ function initializeWebSocket() {
         };
         
         ws.onerror = function(error) {
-            console.error('WebSocket error:', error);
+            console.error('❌ WebSocket error:', error);
             updateConnectionStatus(false);
         };
     } catch (error) {
-        console.error('Failed to initialize WebSocket:', error);
+        console.error('❌ Failed to initialize WebSocket:', error);
         updateConnectionStatus(false);
     }
 }
@@ -286,21 +291,40 @@ function renderAlerts() {
 // Acknowledge alert
 async function acknowledgeAlert(alertId) {
     try {
-        const response = await fetch(`/api/alerts/${alertId}/acknowledge`, {
-            method: 'POST'
+        console.log('🔔 Acknowledging alert:', alertId);
+        
+        const url = `/api/alerts/${alertId}/acknowledge`;
+        console.log('🔗 Request URL:', url);
+        
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            }
         });
         
+        console.log('📡 Response status:', response.status);
+        console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()));
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('❌ Response error text:', errorText);
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        
         const result = await response.json();
+        console.log('✅ Response result:', result);
         
         if (result.success) {
             loadAlerts();
+            loadDashboardData();
             showNotification('Alert acknowledged', 'success');
         } else {
-            showNotification('Failed to acknowledge alert', 'error');
+            showNotification(`Failed to acknowledge alert: ${result.error}`, 'error');
         }
     } catch (error) {
-        console.error('Error acknowledging alert:', error);
-        showNotification('Failed to acknowledge alert', 'error');
+        console.error('❌ Error acknowledging alert:', error);
+        showNotification(`Failed to acknowledge alert: ${error.message}`, 'error');
     }
 }
 
@@ -356,6 +380,24 @@ function closeThresholdsModal() {
     document.getElementById('thresholdsModal').style.display = 'none';
 }
 
+function openEmailConfigModal() {
+    loadEmailSettings();
+    document.getElementById('emailConfigModal').style.display = 'block';
+    
+    // Add Enter key handler for recipient input
+    const recipientInput = document.getElementById('newRecipientEmail');
+    recipientInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addEmailRecipient();
+        }
+    });
+}
+
+function closeEmailConfigModal() {
+    document.getElementById('emailConfigModal').style.display = 'none';
+}
+
 // Load thresholds
 async function loadThresholds() {
     try {
@@ -368,6 +410,125 @@ async function loadThresholds() {
         }
     } catch (error) {
         console.error('Error loading thresholds:', error);
+    }
+}
+
+// Load email settings
+async function loadEmailSettings() {
+    try {
+        const response = await fetch('/api/email/settings');
+        const result = await response.json();
+        
+        if (result.success) {
+            const settings = result.data;
+            document.getElementById('emailEnabled').checked = settings.enabled === 1;
+            document.getElementById('smtpHost').value = settings.smtp_host || 'smtp.gmail.com';
+            document.getElementById('smtpPort').value = settings.smtp_port || 587;
+            document.getElementById('smtpUser').value = settings.smtp_user || '';
+            document.getElementById('fromEmail').value = settings.from_email || '';
+            // Don't populate password for security
+        }
+        
+        // Load recipients separately
+        await loadEmailRecipients();
+    } catch (error) {
+        console.error('Error loading email settings:', error);
+    }
+}
+
+// Load email recipients
+async function loadEmailRecipients() {
+    try {
+        const response = await fetch('/api/email/recipients');
+        const result = await response.json();
+        
+        if (result.success) {
+            renderRecipientsList(result.data);
+        }
+    } catch (error) {
+        console.error('Error loading email recipients:', error);
+        document.getElementById('recipientsList').innerHTML = '<p style="color: red;">Failed to load recipients</p>';
+    }
+}
+
+// Render recipients list
+function renderRecipientsList(recipients) {
+    const recipientsList = document.getElementById('recipientsList');
+    
+    if (recipients.length === 0) {
+        recipientsList.innerHTML = '<p style="color: #666;">No recipients configured</p>';
+        return;
+    }
+    
+    recipientsList.innerHTML = recipients.map(email => `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: #f8f9fa; border-radius: 4px; margin-bottom: 0.5rem;">
+            <span>${email}</span>
+            <button class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;" onclick="removeEmailRecipient('${email}')">Remove</button>
+        </div>
+    `).join('');
+}
+
+// Add email recipient
+async function addEmailRecipient() {
+    const emailInput = document.getElementById('newRecipientEmail');
+    const email = emailInput.value.trim();
+    
+    if (!email) {
+        showNotification('Please enter an email address', 'error');
+        return;
+    }
+    
+    if (!email.includes('@')) {
+        showNotification('Please enter a valid email address', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/email/recipients', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('Recipient added successfully', 'success');
+            emailInput.value = '';
+            renderRecipientsList(result.data);
+        } else {
+            showNotification(`Failed to add recipient: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error adding recipient:', error);
+        showNotification('Failed to add recipient', 'error');
+    }
+}
+
+// Remove email recipient
+async function removeEmailRecipient(email) {
+    if (!confirm(`Remove ${email} from recipients list?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/email/recipients/${encodeURIComponent(email)}`, {
+            method: 'DELETE'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('Recipient removed successfully', 'success');
+            renderRecipientsList(result.data);
+        } else {
+            showNotification(`Failed to remove recipient: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error removing recipient:', error);
+        showNotification('Failed to remove recipient', 'error');
     }
 }
 
@@ -527,6 +688,42 @@ function setupForms() {
             showNotification('Failed to update thresholds', 'error');
         }
     });
+    
+    document.getElementById('emailConfigForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const formData = {
+            enabled: document.getElementById('emailEnabled').checked,
+            smtp_host: document.getElementById('smtpHost').value,
+            smtp_port: parseInt(document.getElementById('smtpPort').value),
+            smtp_secure: false, // We'll use STARTTLS
+            smtp_user: document.getElementById('smtpUser').value,
+            smtp_password: document.getElementById('smtpPassword').value,
+            from_email: document.getElementById('fromEmail').value
+        };
+        
+        try {
+            const response = await fetch('/api/email/settings', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                showNotification('Email settings updated successfully', 'success');
+                // Don't close modal so user can manage recipients
+            } else {
+                showNotification('Failed to update email settings', 'error');
+            }
+        } catch (error) {
+            console.error('Error updating email settings:', error);
+            showNotification('Failed to update email settings', 'error');
+        }
+    });
 }
 
 // Edit gauge
@@ -620,6 +817,94 @@ async function resetSystem() {
     } catch (error) {
         console.error('Error resetting system:', error);
         showNotification('Failed to reset system', 'error');
+    }
+}
+
+// Email notification functions
+async function testEmailNotification() {
+    try {
+        showNotification('Sending test email...', 'info');
+        
+        const response = await fetch('/api/email/test', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(`Test email sent successfully! ${result.data.message}`, 'success');
+        } else {
+            showNotification(`Failed to send test email: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error sending test email:', error);
+        showNotification('Failed to send test email', 'error');
+    }
+}
+
+async function checkEmailStatus() {
+    try {
+        const response = await fetch('/api/email/status');
+        const result = await response.json();
+        
+        if (result.success) {
+            const status = result.data;
+            if (status.success) {
+                showNotification(`Email configured: ${status.config.user} → ${status.config.recipients}`, 'success');
+            } else {
+                showNotification(`Email issue: ${status.message}`, 'warning');
+            }
+        } else {
+            showNotification('Failed to check email status', 'error');
+        }
+    } catch (error) {
+        console.error('Error checking email status:', error);
+        showNotification('Failed to check email status', 'error');
+    }
+}
+
+async function sendDailySummary() {
+    try {
+        showNotification('Sending daily summary...', 'info');
+        
+        const response = await fetch('/api/email/summary');
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(`Daily summary sent: ${result.data.message}`, 'success');
+        } else {
+            showNotification(`Failed to send daily summary: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error sending daily summary:', error);
+        showNotification('Failed to send daily summary', 'error');
+    }
+}
+
+async function testEmailConfig() {
+    try {
+        showNotification('Testing email configuration...', 'info');
+        
+        const response = await fetch('/api/email/test', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(`Test email sent successfully! ${result.data.message}`, 'success');
+        } else {
+            showNotification(`Failed to send test email: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error testing email configuration:', error);
+        showNotification('Failed to test email configuration', 'error');
     }
 }
 

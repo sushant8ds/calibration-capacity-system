@@ -64,6 +64,23 @@ export class Database {
         )
       `);
 
+      // Email settings table
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS email_settings (
+          id INTEGER PRIMARY KEY,
+          enabled INTEGER DEFAULT 1,
+          smtp_host TEXT DEFAULT 'smtp.gmail.com',
+          smtp_port INTEGER DEFAULT 587,
+          smtp_secure INTEGER DEFAULT 0,
+          smtp_user TEXT,
+          smtp_password TEXT,
+          from_email TEXT,
+          recipients TEXT,
+          created_at TEXT,
+          updated_at TEXT
+        )
+      `);
+
       // Insert default thresholds if not exists
       this.db.run(`
         INSERT OR IGNORE INTO capacity_thresholds (id, near_limit_percentage, calibration_warning_months)
@@ -267,6 +284,92 @@ export class Database {
         function(err) {
           if (err) reject(err);
           else resolve();
+        }
+      );
+    });
+  }
+
+  // Email settings operations
+  async getEmailSettings(): Promise<any> {
+    return new Promise((resolve, reject) => {
+      this.db.get('SELECT * FROM email_settings WHERE id = 1', (err, row) => {
+        if (err) reject(err);
+        else {
+          if (!row) {
+            // Return default settings if none exist
+            resolve({
+              id: 1,
+              enabled: 1,
+              smtp_host: 'smtp.gmail.com',
+              smtp_port: 587,
+              smtp_secure: 0,
+              smtp_user: '',
+              smtp_password: '',
+              from_email: '',
+              recipients: '',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
+          } else {
+            resolve(row);
+          }
+        }
+      });
+    });
+  }
+
+  async updateEmailSettings(settings: any): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const now = new Date().toISOString();
+      const db = this.db;
+      
+      // First try to update
+      db.run(
+        `UPDATE email_settings SET 
+         enabled = ?, smtp_host = ?, smtp_port = ?, smtp_secure = ?,
+         smtp_user = ?, smtp_password = ?, from_email = ?, recipients = ?, updated_at = ?
+         WHERE id = 1`,
+        [
+          settings.enabled ? 1 : 0,
+          settings.smtp_host,
+          settings.smtp_port,
+          settings.smtp_secure ? 1 : 0,
+          settings.smtp_user,
+          settings.smtp_password,
+          settings.from_email,
+          settings.recipients,
+          now
+        ],
+        function(err) {
+          if (err) {
+            reject(err);
+          } else if (this.changes === 0) {
+            // No rows updated, insert new record
+            const stmt = db.prepare(
+              `INSERT INTO email_settings 
+               (id, enabled, smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password, from_email, recipients, created_at, updated_at)
+               VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            );
+            
+            stmt.run([
+              settings.enabled ? 1 : 0,
+              settings.smtp_host,
+              settings.smtp_port,
+              settings.smtp_secure ? 1 : 0,
+              settings.smtp_user,
+              settings.smtp_password,
+              settings.from_email,
+              settings.recipients,
+              now,
+              now
+            ], function(insertErr: any) {
+              stmt.finalize();
+              if (insertErr) reject(insertErr);
+              else resolve();
+            });
+          } else {
+            resolve();
+          }
         }
       );
     });
