@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "ts-node src/server.ts",
-    "start": "node server-full.js",
+    "start": "node server-simple-deploy.js",
     "test": "jest"
   },
   "dependencies": {
