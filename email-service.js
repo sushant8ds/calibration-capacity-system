@@ -81,6 +81,7 @@ class EmailService {
         });
 
         console.log('📧 EMAIL SENT SUCCESSFULLY:', info.messageId);
+        console.log('📧 Email delivered to:', config.to);
         return { 
           success: true, 
           message: 'Email sent successfully!',
