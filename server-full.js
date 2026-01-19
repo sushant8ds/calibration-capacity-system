@@ -448,6 +448,19 @@ app.get('/api/email/status', async (req, res) => {
 });
 
 app.post('/api/email/test', async (req, res) => {
+  console.log('📧 Email test endpoint called');
+  
+  // Set a timeout for the response
+  const timeout = setTimeout(() => {
+    if (!res.headersSent) {
+      console.log('📧 Email test timeout - sending timeout response');
+      res.status(408).json({ 
+        success: false, 
+        error: 'Email test timed out after 30 seconds' 
+      });
+    }
+  }, 30000);
+
   try {
     const testAlert = {
       id: 'test-' + Date.now(),
@@ -458,10 +471,13 @@ app.post('/api/email/test', async (req, res) => {
       created_at: new Date().toISOString()
     };
     
+    console.log('📧 Starting email test process');
+    
     // Try to send email directly here instead of using email service
     try {
+      console.log('📧 Attempting to require nodemailer');
       const nodemailer = require('nodemailer');
-      console.log('📧 Nodemailer loaded in server');
+      console.log('📧 Nodemailer loaded successfully in server');
       console.log('📧 Available methods:', Object.keys(nodemailer));
       
       // Get email config from environment variables
@@ -475,17 +491,19 @@ app.post('/api/email/test', async (req, res) => {
         to: process.env.EMAIL_TO
       };
       
-      console.log('📧 Email config:', {
+      console.log('📧 Email config loaded:', {
         host: emailConfig.host,
         port: emailConfig.port,
-        user: emailConfig.user,
+        user: emailConfig.user ? 'SET' : 'NOT SET',
+        password: emailConfig.password ? 'SET' : 'NOT SET',
         to: emailConfig.to
       });
       
       if (!emailConfig.user || !emailConfig.password || !emailConfig.to) {
-        throw new Error('Email configuration incomplete');
+        throw new Error(`Email configuration incomplete: user=${!!emailConfig.user}, password=${!!emailConfig.password}, to=${!!emailConfig.to}`);
       }
       
+      console.log('📧 Creating transporter');
       // Create transporter
       const transporter = nodemailer.createTransport({
         host: emailConfig.host,
@@ -509,34 +527,59 @@ app.post('/api/email/test', async (req, res) => {
         <p>If you received this email, the notification system is working correctly!</p>
       `;
       
-      // Send email
-      const info = await transporter.sendMail({
-        from: emailConfig.from,
-        to: emailConfig.to,
-        subject: subject,
-        html: html
-      });
+      console.log('📧 Attempting to send email');
+      // Send email with timeout
+      const info = await Promise.race([
+        transporter.sendMail({
+          from: emailConfig.from,
+          to: emailConfig.to,
+          subject: subject,
+          html: html
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Email sending timeout')), 25000)
+        )
+      ]);
       
       console.log('📧 EMAIL SENT SUCCESSFULLY:', info.messageId);
-      res.json({ 
-        success: true, 
-        data: { 
+      clearTimeout(timeout);
+      
+      if (!res.headersSent) {
+        res.json({ 
           success: true, 
-          message: 'Real email sent successfully!',
-          messageId: info.messageId,
-          recipient: emailConfig.to
-        } 
-      });
+          data: { 
+            success: true, 
+            message: 'Real email sent successfully!',
+            messageId: info.messageId,
+            recipient: emailConfig.to
+          } 
+        });
+      }
       
     } catch (emailError) {
-      console.error('📧 Direct email sending failed:', emailError);
+      console.error('📧 Direct email sending failed:', emailError.message);
+      console.error('📧 Full error:', emailError);
       
-      // Fallback to email service
-      const result = await emailService.sendAlert(testAlert);
-      res.json({ success: true, data: result });
+      clearTimeout(timeout);
+      
+      if (!res.headersSent) {
+        res.json({ 
+          success: true, 
+          data: { 
+            success: false, 
+            message: `Email sending failed: ${emailError.message}`,
+            error: emailError.message
+          } 
+        });
+      }
     }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('📧 Email test endpoint error:', error);
+    clearTimeout(timeout);
+    
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
 });
 
