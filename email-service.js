@@ -20,7 +20,7 @@ class EmailService {
     if (this.database) {
       try {
         const settings = await this.database.getEmailSettings();
-        if (settings && settings.enabled) {
+        if (settings && settings.enabled && settings.smtp_user && settings.recipients) {
           return {
             host: settings.smtp_host,
             port: settings.smtp_port,
@@ -36,7 +36,8 @@ class EmailService {
       }
     }
     
-    // Fallback to environment variables
+    // Fallback to environment variables (important for Render deployment)
+    console.log('📧 Using environment variables for email configuration');
     return this.fallbackConfig;
   }
 

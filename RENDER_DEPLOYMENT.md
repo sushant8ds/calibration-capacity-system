@@ -63,13 +63,23 @@ Fill in the following settings:
 - **Health Check Path**: `/health`
 - **Auto-Deploy**: `Yes` (recommended)
 
-### 2.4 Environment Variables
+### 2.4 Environment Variables (CRITICAL FOR EMAIL)
 Click **"Advanced"** and add these environment variables:
 
 | Key | Value |
 |-----|-------|
 | `NODE_ENV` | `production` |
 | `PORT` | `10000` |
+| `EMAIL_ENABLED` | `true` |
+| `EMAIL_HOST` | `smtp.gmail.com` |
+| `EMAIL_PORT` | `587` |
+| `EMAIL_SECURE` | `false` |
+| `EMAIL_USER` | `sushantds2003@gmail.com` |
+| `EMAIL_PASSWORD` | `vthp Idoo komb fayo` |
+| `EMAIL_FROM` | `sushantds2003@gmail.com` |
+| `EMAIL_TO` | `sushantds2003@gmail.com` |
+
+**⚠️ IMPORTANT**: Without these email environment variables, email notifications won't work on Render!
 
 ### 2.5 Deploy
 1. Click **"Create Web Service"**
@@ -111,6 +121,12 @@ Visit your Render URL in a browser
 ### 4.3 Check Real-time Updates
 - WebSocket connection should show "Connected"
 - Dashboard should update in real-time
+
+### 4.4 Test Email Configuration
+1. Click "Email Config" button in the dashboard
+2. Click "Test Configuration" - should show success with environment variables
+3. Add additional recipients through the UI if needed
+4. Create a test alert to verify email notifications work
 
 ## 🔧 Troubleshooting
 
