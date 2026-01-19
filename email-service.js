@@ -59,7 +59,12 @@ class EmailService {
       
       // Try to send actual email using nodemailer
       try {
+        // Import nodemailer at the top of the function to ensure fresh import
+        delete require.cache[require.resolve('nodemailer')];
         const nodemailer = require('nodemailer');
+        
+        console.log('📧 Nodemailer imported successfully');
+        console.log('📧 Available methods:', Object.keys(nodemailer));
         
         // Create transporter
         const transporter = nodemailer.createTransport({
@@ -71,6 +76,8 @@ class EmailService {
             pass: config.password
           }
         });
+
+        console.log('📧 Transporter created successfully');
 
         // Send email
         const info = await transporter.sendMail({
@@ -92,6 +99,7 @@ class EmailService {
         
       } catch (emailError) {
         console.error('📧 Failed to send email, falling back to logging:', emailError.message);
+        console.error('📧 Full error:', emailError);
         
         // Fallback to logging if email fails
         console.log('📧 EMAIL NOTIFICATION (FALLBACK LOG):');
