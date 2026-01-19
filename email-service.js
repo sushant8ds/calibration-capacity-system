@@ -62,7 +62,7 @@ class EmailService {
         const nodemailer = require('nodemailer');
         
         // Create transporter
-        const transporter = nodemailer.createTransporter({
+        const transporter = nodemailer.createTransport({
           host: config.host,
           port: config.port,
           secure: config.secure,
@@ -275,7 +275,7 @@ class EmailService {
     try {
       const nodemailer = require('nodemailer');
       
-      const transporter = nodemailer.createTransporter({
+      const transporter = nodemailer.createTransport({
         host: config.host,
         port: config.port,
         secure: config.secure,
