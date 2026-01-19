@@ -458,8 +458,83 @@ app.post('/api/email/test', async (req, res) => {
       created_at: new Date().toISOString()
     };
     
-    const result = await emailService.sendAlert(testAlert);
-    res.json({ success: true, data: result });
+    // Try to send email directly here instead of using email service
+    try {
+      const nodemailer = require('nodemailer');
+      console.log('📧 Nodemailer loaded in server');
+      console.log('📧 Available methods:', Object.keys(nodemailer));
+      
+      // Get email config from environment variables
+      const emailConfig = {
+        host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+        port: parseInt(process.env.EMAIL_PORT) || 587,
+        secure: false,
+        user: process.env.EMAIL_USER,
+        password: process.env.EMAIL_PASSWORD,
+        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        to: process.env.EMAIL_TO
+      };
+      
+      console.log('📧 Email config:', {
+        host: emailConfig.host,
+        port: emailConfig.port,
+        user: emailConfig.user,
+        to: emailConfig.to
+      });
+      
+      if (!emailConfig.user || !emailConfig.password || !emailConfig.to) {
+        throw new Error('Email configuration incomplete');
+      }
+      
+      // Create transporter
+      const transporter = nodemailer.createTransport({
+        host: emailConfig.host,
+        port: emailConfig.port,
+        secure: emailConfig.secure,
+        auth: {
+          user: emailConfig.user,
+          pass: emailConfig.password
+        }
+      });
+      
+      console.log('📧 Transporter created successfully');
+      
+      // Generate email content
+      const subject = `⚠️ Calibration Alert: ${testAlert.gauge_id} - ${testAlert.type.toUpperCase()}`;
+      const html = `
+        <h2>🧪 Test Email from Calibration System</h2>
+        <p><strong>Message:</strong> ${testAlert.message}</p>
+        <p><strong>Alert ID:</strong> ${testAlert.id}</p>
+        <p><strong>Time:</strong> ${new Date(testAlert.created_at).toLocaleString()}</p>
+        <p>If you received this email, the notification system is working correctly!</p>
+      `;
+      
+      // Send email
+      const info = await transporter.sendMail({
+        from: emailConfig.from,
+        to: emailConfig.to,
+        subject: subject,
+        html: html
+      });
+      
+      console.log('📧 EMAIL SENT SUCCESSFULLY:', info.messageId);
+      res.json({ 
+        success: true, 
+        data: { 
+          success: true, 
+          message: 'Real email sent successfully!',
+          messageId: info.messageId,
+          recipient: emailConfig.to
+        } 
+      });
+      
+    } catch (emailError) {
+      console.error('📧 Direct email sending failed:', emailError);
+      
+      // Fallback to email service
+      const result = await emailService.sendAlert(testAlert);
+      res.json({ success: true, data: result });
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
