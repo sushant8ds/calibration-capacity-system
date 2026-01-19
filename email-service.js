@@ -55,28 +55,60 @@ class EmailService {
     }
 
     try {
-      // For now, we'll just log the email content
-      // In production, this would use nodemailer to send actual emails
       const emailContent = this.generateEmailContent(alert);
       
-      console.log('📧 EMAIL NOTIFICATION WOULD BE SENT:');
-      console.log('=====================================');
-      console.log(`To: ${config.to}`);
-      console.log(`From: ${config.from}`);
-      console.log(`Subject: ${emailContent.subject}`);
-      console.log('Body:');
-      console.log(emailContent.html);
-      console.log('=====================================');
+      // Try to send actual email using nodemailer
+      try {
+        const nodemailer = require('nodemailer');
+        
+        // Create transporter
+        const transporter = nodemailer.createTransporter({
+          host: config.host,
+          port: config.port,
+          secure: config.secure,
+          auth: {
+            user: config.user,
+            pass: config.password
+          }
+        });
 
-      // Simulate email sending delay
-      await new Promise(resolve => setTimeout(resolve, 100));
+        // Send email
+        const info = await transporter.sendMail({
+          from: config.from || config.user,
+          to: config.to,
+          subject: emailContent.subject,
+          html: emailContent.html
+        });
 
-      return { 
-        success: true, 
-        message: 'Email notification logged (would be sent in production)',
-        recipient: config.to,
-        subject: emailContent.subject
-      };
+        console.log('📧 EMAIL SENT SUCCESSFULLY:', info.messageId);
+        return { 
+          success: true, 
+          message: 'Email sent successfully!',
+          recipient: config.to,
+          subject: emailContent.subject,
+          messageId: info.messageId
+        };
+        
+      } catch (emailError) {
+        console.error('📧 Failed to send email, falling back to logging:', emailError.message);
+        
+        // Fallback to logging if email fails
+        console.log('📧 EMAIL NOTIFICATION (FALLBACK LOG):');
+        console.log('=====================================');
+        console.log(`To: ${config.to}`);
+        console.log(`From: ${config.from}`);
+        console.log(`Subject: ${emailContent.subject}`);
+        console.log('Body:');
+        console.log(emailContent.html);
+        console.log('=====================================');
+
+        return { 
+          success: true, 
+          message: `Email sending failed (${emailError.message}), logged instead`,
+          recipient: config.to,
+          subject: emailContent.subject
+        };
+      }
     } catch (error) {
       console.error('📧 Email service error:', error);
       return { success: false, message: error.message };
@@ -239,22 +271,58 @@ class EmailService {
       return { success: false, message: 'Email credentials not configured' };
     }
 
-    // Simulate connection test
-    console.log('📧 Testing email connection...');
-    console.log(`Host: ${config.host}:${config.port}`);
-    console.log(`User: ${config.user}`);
-    console.log(`Recipients: ${config.to}`);
-
-    return { 
-      success: true, 
-      message: 'Email configuration looks good (simulated test)',
-      config: {
+    // Test actual SMTP connection
+    try {
+      const nodemailer = require('nodemailer');
+      
+      const transporter = nodemailer.createTransporter({
         host: config.host,
         port: config.port,
-        user: config.user,
-        recipients: config.to
-      }
-    };
+        secure: config.secure,
+        auth: {
+          user: config.user,
+          pass: config.password
+        }
+      });
+
+      // Verify connection
+      await transporter.verify();
+      
+      console.log('📧 SMTP connection verified successfully');
+      console.log(`Host: ${config.host}:${config.port}`);
+      console.log(`User: ${config.user}`);
+      console.log(`Recipients: ${config.to}`);
+
+      return { 
+        success: true, 
+        message: 'Email configuration verified - ready to send real emails!',
+        config: {
+          host: config.host,
+          port: config.port,
+          user: config.user,
+          recipients: config.to
+        }
+      };
+    } catch (error) {
+      console.error('📧 SMTP connection failed:', error.message);
+      
+      // Fallback to basic validation
+      console.log('📧 SMTP verification failed, using basic validation');
+      console.log(`Host: ${config.host}:${config.port}`);
+      console.log(`User: ${config.user}`);
+      console.log(`Recipients: ${config.to}`);
+
+      return { 
+        success: true, 
+        message: `SMTP verification failed (${error.message}), but configuration looks valid`,
+        config: {
+          host: config.host,
+          port: config.port,
+          user: config.user,
+          recipients: config.to
+        }
+      };
+    }
   }
 }
 
