@@ -2,20 +2,21 @@
 // Now supports database configuration management
 
 class EmailService {
-  constructor(database = null) {
+    constructor(database = null) {
     this.database = database;
-    this.enabled = process.env.EMAIL_ENABLED === 'true' || true; // Default to enabled
+    this.enabled = true; // Always enabled for auto-deployment
     
     // Hardcoded fallback configuration for automatic deployment
     this.fallbackConfig = {
-      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: process.env.EMAIL_PORT || 587,
-      secure: process.env.EMAIL_SECURE === 'true' || false,
-      user: process.env.EMAIL_USER || 'sushantds2003@gmail.com',
-      password: process.env.EMAIL_PASSWORD || 'cebuquciloqihhdo',
-      from: process.env.EMAIL_FROM || 'sushantds2003@gmail.com',
-      to: process.env.EMAIL_TO || '01fe23bcs086@kletech.ac.in'
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false,
+      user: 'sushantds2003@gmail.com',
+      password: 'cebuquciloqihhdo',
+      from: 'sushantds2003@gmail.com',
+      to: '01fe23bcs086@kletech.ac.in'
     };
+  };
   }
 
   async getConfig() {
