@@ -14,12 +14,31 @@ const WebSocket = require('ws');
 const EmailService = require('./email-service');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3004;
 
 // Initialize services
 console.log('📦 Initializing database...');
 const database = new Database();
 const emailService = new EmailService(database);
+
+// Hardcoded email configuration for automatic deployment
+const HARDCODED_EMAIL_CONFIG = {
+  EMAIL_ENABLED: 'true',
+  EMAIL_HOST: 'smtp.gmail.com',
+  EMAIL_PORT: '587',
+  EMAIL_SECURE: 'false',
+  EMAIL_USER: 'sushantds2003@gmail.com',
+  EMAIL_PASSWORD: 'cebuquciloqihhdo',
+  EMAIL_FROM: 'sushantds2003@gmail.com',
+  EMAIL_TO: '01fe23bcs086@kletech.ac.in'
+};
+
+// Set environment variables if not already set
+Object.keys(HARDCODED_EMAIL_CONFIG).forEach(key => {
+  if (!process.env[key]) {
+    process.env[key] = HARDCODED_EMAIL_CONFIG[key];
+  }
+});
 
 // Debug email configuration
 console.log('📧 Email configuration:');
@@ -473,23 +492,23 @@ app.post('/api/email/test', async (req, res) => {
     
     console.log('📧 Starting email test process');
     
+    // Get email config from environment variables first (with hardcoded fallbacks)
+    const emailConfig = {
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.EMAIL_PORT) || 587,
+      secure: process.env.EMAIL_SECURE === 'true' || false,
+      user: process.env.EMAIL_USER || 'sushantds2003@gmail.com',
+      password: process.env.EMAIL_PASSWORD || 'cebuquciloqihhdo',
+      from: process.env.EMAIL_FROM || 'sushantds2003@gmail.com',
+      to: process.env.EMAIL_TO || '01fe23bcs086@kletech.ac.in'
+    };
+    
     // Try to send email directly here instead of using email service
     try {
       console.log('📧 Attempting to require nodemailer');
       const nodemailer = require('nodemailer');
       console.log('📧 Nodemailer loaded successfully in server');
       console.log('📧 Available methods:', Object.keys(nodemailer));
-      
-      // Get email config from environment variables
-      const emailConfig = {
-        host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-        port: parseInt(process.env.EMAIL_PORT) || 587,
-        secure: false,
-        user: process.env.EMAIL_USER,
-        password: process.env.EMAIL_PASSWORD,
-        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-        to: process.env.EMAIL_TO
-      };
       
       console.log('📧 Email config loaded:', {
         host: emailConfig.host,
@@ -504,11 +523,9 @@ app.post('/api/email/test', async (req, res) => {
       }
       
       console.log('📧 Creating transporter');
-      // Create transporter
+      // Create transporter using Gmail service
       const transporter = nodemailer.createTransport({
-        host: emailConfig.host,
-        port: emailConfig.port,
-        secure: emailConfig.secure,
+        service: 'gmail',
         auth: {
           user: emailConfig.user,
           pass: emailConfig.password
