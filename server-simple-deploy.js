@@ -9,6 +9,7 @@ const sqlite3 = require('sqlite3').verbose();
 const { v4: uuidv4 } = require('uuid');
 const WebSocket = require('ws');
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const crypto = require('crypto');
 
 // Simple token store (in-memory)
@@ -29,13 +30,10 @@ const PORT = process.env.PORT || 10000;
 // Hardcoded email configuration for automatic deployment
 const EMAIL_CONFIG = {
   enabled: true,
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
   user: 'sushantds2003@gmail.com',
-  password: 'huqetmjwgpdtfeex',
-  from: 'sushantds2003@gmail.com',
-  to: 'sushantds2003@gmail.com'
+  from: 'onboarding@resend.dev',
+  to: 'sushantds2003@gmail.com',
+  resendApiKey: process.env.RESEND_API_KEY || ''
 };
 
 console.log('📦 Initializing database...');
@@ -119,43 +117,38 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// Email service
+// Email service using Resend (works on Render free tier - uses HTTPS not SMTP)
 async function sendEmail(alert) {
   try {
-    console.log('📧 Sending email notification...');
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      auth: {
-        user: EMAIL_CONFIG.user,
-        pass: EMAIL_CONFIG.password
-      },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 10000
-    });
+    if (!EMAIL_CONFIG.resendApiKey) {
+      console.error('📧 ❌ RESEND_API_KEY not set');
+      return { success: false, error: 'RESEND_API_KEY not configured' };
+    }
+    console.log('📧 Sending email via Resend...');
+    const resend = new Resend(EMAIL_CONFIG.resendApiKey);
+    const toList = emailRecipients.length > 0 ? emailRecipients : [EMAIL_CONFIG.to];
 
-    const subject = `⚠️ Calibration Alert: ${alert.gauge_id} - ${alert.type.toUpperCase()}`;
-    const html = `
-      <h2>🚨 Calibration Alert</h2>
-      <p><strong>Gauge ID:</strong> ${alert.gauge_id}</p>
-      <p><strong>Alert Type:</strong> ${alert.type}</p>
-      <p><strong>Severity:</strong> ${alert.severity}</p>
-      <p><strong>Message:</strong> ${alert.message}</p>
-      <p><strong>Time:</strong> ${new Date(alert.created_at).toLocaleString()}</p>
-      <p>Please take appropriate action to address this calibration issue.</p>
-    `;
-
-    const info = await transporter.sendMail({
+    const { data, error } = await resend.emails.send({
       from: EMAIL_CONFIG.from,
-      to: emailRecipients.join(', '),
-      subject,
-      html
+      to: toList,
+      subject: `⚠️ Calibration Alert: ${alert.gauge_id} - ${alert.type.toUpperCase()}`,
+      html: `
+        <h2>🚨 Calibration Alert</h2>
+        <p><strong>Gauge ID:</strong> ${alert.gauge_id}</p>
+        <p><strong>Alert Type:</strong> ${alert.type}</p>
+        <p><strong>Severity:</strong> ${alert.severity}</p>
+        <p><strong>Message:</strong> ${alert.message}</p>
+        <p><strong>Time:</strong> ${new Date(alert.created_at).toLocaleString()}</p>
+        <p>Please take appropriate action to address this calibration issue.</p>
+      `
     });
 
-    console.log('📧 ✅ EMAIL SENT SUCCESSFULLY:', info.messageId);
-    return { success: true, messageId: info.messageId };
+    if (error) {
+      console.error('📧 ❌ Resend error:', error);
+      return { success: false, error: error.message };
+    }
+    console.log('📧 ✅ EMAIL SENT via Resend:', data.id);
+    return { success: true, messageId: data.id };
   } catch (error) {
     console.error('📧 ❌ Email sending failed:', error.message);
     console.error('📧 ❌ Full error:', JSON.stringify(error, null, 2));
@@ -562,16 +555,12 @@ const wss = new WebSocket.Server({ server, path: '/ws' });
 
 console.log('📡 WebSocket server initialized on path /ws');
 
-// Test email on startup
+// Verify Resend API key on startup
 (async () => {
-  try {
-    const nodemailer = require('nodemailer');
-    const t = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user: EMAIL_CONFIG.user, pass: EMAIL_CONFIG.password } });
-    await t.verify();
-    console.log('📧 ✅ Gmail SMTP connection verified successfully');
-  } catch (e) {
-    console.error('📧 ❌ Gmail SMTP verification FAILED:', e.message);
-    console.error('📧 ❌ Check that the app password is correct and 2FA is enabled on the Gmail account');
+  if (!EMAIL_CONFIG.resendApiKey) {
+    console.error('📧 ❌ RESEND_API_KEY env var not set - email will not work');
+  } else {
+    console.log('📧 ✅ Resend API key configured - email ready');
   }
 })();
 

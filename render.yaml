@@ -28,3 +28,5 @@ services:
         value: "sushantds2003@gmail.com"
       - key: EMAIL_TO
         value: "01fe23bcs086@kletech.ac.in"
+      - key: RESEND_API_KEY
+        value: "your_resend_api_key_here"
