@@ -35,7 +35,7 @@ const EMAIL_CONFIG = {
   user: 'sushantds2003@gmail.com',
   password: 'cebuquciloqihhdo',
   from: 'sushantds2003@gmail.com',
-  to: '01fe23bcs086@kletech.ac.in'
+  to: 'sushantds2003@gmail.com'
 };
 
 console.log('📦 Initializing database...');
@@ -153,6 +153,7 @@ async function sendEmail(alert) {
     return { success: true, messageId: info.messageId };
   } catch (error) {
     console.error('📧 ❌ Email sending failed:', error.message);
+    console.error('📧 ❌ Full error:', JSON.stringify(error, null, 2));
     return { success: false, error: error.message };
   }
 }
