@@ -95,12 +95,17 @@ db.serialize(() => {
   )`);
 
   // Migrate existing table to add missing columns if needed
-  db.run(`ALTER TABLE gauge_profiles ADD COLUMN calibration_frequency INTEGER`).catch?.(() => {});
-  db.run(`ALTER TABLE gauge_profiles ADD COLUMN monthly_usage REAL`).catch?.(() => {});
-  db.run(`ALTER TABLE gauge_profiles ADD COLUMN produced_quantity REAL`).catch?.(() => {});
-  db.run(`ALTER TABLE gauge_profiles ADD COLUMN max_capacity REAL`).catch?.(() => {});
-  db.run(`ALTER TABLE gauge_profiles ADD COLUMN remaining_capacity REAL`).catch?.(() => {});
-  db.run(`ALTER TABLE gauge_profiles ADD COLUMN status TEXT`).catch?.(() => {});
+  const migrationCols = [
+    'calibration_frequency INTEGER',
+    'monthly_usage REAL',
+    'produced_quantity REAL',
+    'max_capacity REAL',
+    'remaining_capacity REAL',
+    'status TEXT'
+  ];
+  migrationCols.forEach(col => {
+    db.run(`ALTER TABLE gauge_profiles ADD COLUMN ${col}`, () => {/* ignore if already exists */});
+  });
 });
 
 // Middleware
