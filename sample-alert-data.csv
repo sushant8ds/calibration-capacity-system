@@ -1,0 +1,6 @@
+gauge_id,gauge_type,location,last_calibration_date,calibration_interval_months,next_calibration_date,status,capacity_percentage,notes
+GAUGE-001,Pressure,Lab A,2023-01-15,12,2024-01-15,overdue,85,Critical pressure gauge - needs immediate calibration
+GAUGE-002,Temperature,Lab B,2023-06-20,6,2024-06-20,overdue,92,High temperature sensor - calibration overdue
+GAUGE-003,Flow,Production Line 1,2024-01-10,3,2024-04-10,near_limit,78,Flow meter approaching calibration date
+GAUGE-004,Pressure,Lab C,2022-12-01,12,2023-12-01,overdue,95,Emergency calibration required - over capacity
+GAUGE-005,Voltage,Electrical Room,2024-02-15,6,2024-08-15,calibration_required,88,Voltage meter needs calibration soon

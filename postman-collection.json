@@ -1,0 +1,396 @@
+{
+  "info": {
+    "name": "Capacity Management System API",
+    "description": "Complete API collection for the Capacity Management System with authentication, gauges, alerts, and admin endpoints",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3001/api",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Register User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"testuser\",\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"operator\",\n  \"first_name\": \"Test\",\n  \"last_name\": \"User\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('jwt_token', response.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gauges",
+      "item": [
+        {
+          "name": "Get All Gauges",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/gauges",
+              "host": ["{{base_url}}"],
+              "path": ["gauges"]
+            }
+          }
+        },
+        {
+          "name": "Get Gauge by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/gauges/GAUGE-001",
+              "host": ["{{base_url}}"],
+              "path": ["gauges", "GAUGE-001"]
+            }
+          }
+        },
+        {
+          "name": "Create Gauge",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"gauge_id\": \"GAUGE-001\",\n  \"description\": \"Main Tank Pressure Gauge\",\n  \"location\": \"Building A - Floor 1\",\n  \"capacity\": 1000,\n  \"current_level\": 750,\n  \"unit\": \"PSI\",\n  \"calibration_interval_months\": 12,\n  \"last_calibration_date\": \"2024-01-15\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/gauges",
+              "host": ["{{base_url}}"],
+              "path": ["gauges"]
+            }
+          }
+        },
+        {
+          "name": "Update Gauge",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_level\": 850,\n  \"description\": \"Updated Main Tank Pressure Gauge\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/gauges/GAUGE-001",
+              "host": ["{{base_url}}"],
+              "path": ["gauges", "GAUGE-001"]
+            }
+          }
+        },
+        {
+          "name": "Delete Gauge",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/gauges/GAUGE-001",
+              "host": ["{{base_url}}"],
+              "path": ["gauges", "GAUGE-001"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Get Dashboard Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/dashboard/stats",
+              "host": ["{{base_url}}"],
+              "path": ["dashboard", "stats"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Alerts",
+      "item": [
+        {
+          "name": "Get All Alerts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/alerts",
+              "host": ["{{base_url}}"],
+              "path": ["alerts"]
+            }
+          }
+        },
+        {
+          "name": "Get Active Alerts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/alerts/active",
+              "host": ["{{base_url}}"],
+              "path": ["alerts", "active"]
+            }
+          }
+        },
+        {
+          "name": "Resolve Alert",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/alerts/alert-id/resolve",
+              "host": ["{{base_url}}"],
+              "path": ["alerts", "alert-id", "resolve"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Upload & Export",
+      "item": [
+        {
+          "name": "Upload Gauges Excel/CSV",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/upload/gauges",
+              "host": ["{{base_url}}"],
+              "path": ["upload", "gauges"]
+            }
+          }
+        },
+        {
+          "name": "Export All Gauges",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/export/gauges",
+              "host": ["{{base_url}}"],
+              "path": ["export", "gauges"]
+            }
+          }
+        },
+        {
+          "name": "Download Template",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/export/template",
+              "host": ["{{base_url}}"],
+              "path": ["export", "template"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Get Capacity Thresholds",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/thresholds",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "thresholds"]
+            }
+          }
+        },
+        {
+          "name": "Update Capacity Thresholds",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"near_limit_percentage\": 85,\n  \"calibration_warning_days\": 45,\n  \"overdue_threshold_days\": 7\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/thresholds",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "thresholds"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit",
+      "item": [
+        {
+          "name": "Get Audit Entries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/audit?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["audit"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Audit Entries by Gauge",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/audit?gauge_id=GAUGE-001",
+              "host": ["{{base_url}}"],
+              "path": ["audit"],
+              "query": [
+                {
+                  "key": "gauge_id",
+                  "value": "GAUGE-001"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
