@@ -339,6 +339,92 @@ app.post('/api/upload/import', upload.single('file'), (req, res) => {
   }
 });
 
+// Delete gauge
+app.delete('/api/gauges/:id', (req, res) => {
+  db.run('DELETE FROM gauge_profiles WHERE gauge_id = ?', [req.params.id], function(err) {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// Update gauge
+app.put('/api/gauges/:id', (req, res) => {
+  const now = new Date().toISOString();
+  const g = req.body;
+  db.run(`UPDATE gauge_profiles SET gauge_type=?, location=?, last_calibration_date=?, calibration_interval_months=?, next_calibration_date=?, capacity_percentage=?, notes=?, last_modified_by=?, updated_at=? WHERE gauge_id=?`,
+    [g.gauge_type, g.location, g.last_calibration_date, g.calibration_interval_months, g.next_calibration_date, g.capacity_percentage, g.notes, g.last_modified_by||'Web Interface', now, req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ success: false, error: err.message });
+      res.json({ success: true });
+    });
+});
+
+// Acknowledge alert
+app.put('/api/alerts/:id/acknowledge', (req, res) => {
+  db.run('UPDATE alerts SET acknowledged = 1 WHERE id = ?', [req.params.id], function(err) {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// Export Excel
+app.get('/api/export/excel', (req, res) => {
+  db.all('SELECT * FROM gauge_profiles', (err, rows) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    try {
+      const XLSX = require('xlsx');
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Gauges');
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="gauge-profiles-${new Date().toISOString().split('T')[0]}.xlsx"`);
+      res.send(buf);
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+});
+
+// Admin thresholds (simple in-memory store)
+let thresholds = { near_limit_percentage: 80, calibration_warning_months: 1 };
+app.get('/api/admin/thresholds', (req, res) => res.json({ success: true, data: thresholds }));
+app.put('/api/admin/thresholds', (req, res) => {
+  thresholds = { ...thresholds, ...req.body };
+  res.json({ success: true, data: thresholds });
+});
+
+// Admin reset
+app.post('/api/admin/reset', (req, res) => {
+  db.serialize(() => {
+    db.run('DELETE FROM gauge_profiles');
+    db.run('DELETE FROM alerts', () => res.json({ success: true }));
+  });
+});
+
+// Email status
+app.get('/api/email/status', (req, res) => {
+  res.json({ success: true, data: { success: true, config: { user: EMAIL_CONFIG.user, recipients: EMAIL_CONFIG.to }, message: 'Email configured' } });
+});
+
+// Email settings (read from hardcoded config)
+app.get('/api/email/settings', (req, res) => {
+  res.json({ success: true, data: { enabled: 1, smtp_host: EMAIL_CONFIG.host, smtp_port: EMAIL_CONFIG.port, smtp_user: EMAIL_CONFIG.user, from_email: EMAIL_CONFIG.from } });
+});
+app.put('/api/email/settings', (req, res) => res.json({ success: true }));
+
+// Email recipients
+app.get('/api/email/recipients', (req, res) => res.json({ success: true, data: [EMAIL_CONFIG.to] }));
+app.post('/api/email/recipients', (req, res) => res.json({ success: true, data: [EMAIL_CONFIG.to] }));
+app.delete('/api/email/recipients/:email', (req, res) => res.json({ success: true, data: [EMAIL_CONFIG.to] }));
+
+// Email summary
+app.get('/api/email/summary', async (req, res) => {
+  const alert = { id: 'summary-' + Date.now(), gauge_id: 'SYSTEM', type: 'daily_summary', severity: 'low', message: 'Daily summary report', created_at: new Date().toISOString() };
+  const result = await sendEmail(alert);
+  res.json({ success: true, data: { message: result.success ? 'Summary sent!' : result.error } });
+});
+
 // Excel template download
 app.get('/api/upload/template', (req, res) => {
   try {
@@ -358,11 +444,11 @@ app.get('/api/upload/template', (req, res) => {
   }
 });
 
-// ─── SERVE REACT FRONTEND ─────────────────────────────────────────────────────
+// ─── SERVE VANILLA JS FRONTEND ───────────────────────────────────────────────
 // NOTE: This must come AFTER all API routes
-app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
+app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'frontend', 'dist', 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ─── START SERVER ─────────────────────────────────────────────────────────────
