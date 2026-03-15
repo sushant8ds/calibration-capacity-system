@@ -27,7 +27,8 @@ const Upload: React.FC = () => {
         'text/csv'
       ];
       
-      if (validTypes.includes(selectedFile.type) || selectedFile.name.endsWith('.csv')) {
+      const name = selectedFile.name.toLowerCase();
+      if (validTypes.includes(selectedFile.type) || name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv')) {
         setFile(selectedFile);
         setResult(null);
       } else {
@@ -66,7 +67,8 @@ const Upload: React.FC = () => {
     } catch (error: any) {
       setResult({
         success: false,
-        message: error.response?.data?.error || 'Upload failed',
+        message: error.response?.data?.error || error.response?.data?.details || error.message || 'Upload failed',
+        errors: error.response?.data?.details ? [error.response.data.details] : undefined,
       });
     } finally {
       setUploading(false);
