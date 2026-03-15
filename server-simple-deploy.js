@@ -124,11 +124,16 @@ async function sendEmail(alert) {
   try {
     console.log('📧 Sending email notification...');
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: {
         user: EMAIL_CONFIG.user,
         pass: EMAIL_CONFIG.password
-      }
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000
     });
 
     const subject = `⚠️ Calibration Alert: ${alert.gauge_id} - ${alert.type.toUpperCase()}`;
@@ -561,7 +566,7 @@ console.log('📡 WebSocket server initialized on path /ws');
 (async () => {
   try {
     const nodemailer = require('nodemailer');
-    const t = nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_CONFIG.user, pass: EMAIL_CONFIG.password } });
+    const t = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user: EMAIL_CONFIG.user, pass: EMAIL_CONFIG.password } });
     await t.verify();
     console.log('📧 ✅ Gmail SMTP connection verified successfully');
   } catch (e) {
