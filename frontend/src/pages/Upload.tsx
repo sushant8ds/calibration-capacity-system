@@ -210,7 +210,7 @@ const Upload: React.FC = () => {
               <div className="bg-white border border-red-200 rounded p-3">
                 <h4 className="text-sm font-medium text-red-800 mb-2">Errors:</h4>
                 <ul className="text-sm text-red-700 space-y-1">
-                  {result.errors.slice(0, 10).map((error, index) => (
+                  {result.errors.slice(0, 10).map((error: string, index: number) => (
                     <li key={index}>• {error}</li>
                   ))}
                   {result.errors.length > 10 && (
