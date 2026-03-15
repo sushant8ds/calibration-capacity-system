@@ -144,7 +144,7 @@ async function sendEmail(alert) {
 
     const info = await transporter.sendMail({
       from: EMAIL_CONFIG.from,
-      to: EMAIL_CONFIG.to,
+      to: emailRecipients.join(', '),
       subject,
       html
     });
@@ -479,21 +479,35 @@ app.post('/api/admin/reset', (req, res) => {
   });
 });
 
+// In-memory recipients list (persists for session, initialized from config)
+let emailRecipients = [EMAIL_CONFIG.to];
+
 // Email status
 app.get('/api/email/status', (req, res) => {
-  res.json({ success: true, data: { success: true, config: { user: EMAIL_CONFIG.user, recipients: EMAIL_CONFIG.to }, message: 'Email configured' } });
+  res.json({ success: true, data: { success: true, config: { user: EMAIL_CONFIG.user, recipients: emailRecipients.join(', ') }, message: 'Email configured' } });
 });
 
-// Email settings (read from hardcoded config)
+// Email settings
 app.get('/api/email/settings', (req, res) => {
   res.json({ success: true, data: { enabled: 1, smtp_host: EMAIL_CONFIG.host, smtp_port: EMAIL_CONFIG.port, smtp_user: EMAIL_CONFIG.user, from_email: EMAIL_CONFIG.from } });
 });
 app.put('/api/email/settings', (req, res) => res.json({ success: true }));
 
-// Email recipients
-app.get('/api/email/recipients', (req, res) => res.json({ success: true, data: [EMAIL_CONFIG.to] }));
-app.post('/api/email/recipients', (req, res) => res.json({ success: true, data: [EMAIL_CONFIG.to] }));
-app.delete('/api/email/recipients/:email', (req, res) => res.json({ success: true, data: [EMAIL_CONFIG.to] }));
+// Email recipients - fully functional
+app.get('/api/email/recipients', (req, res) => {
+  res.json({ success: true, data: emailRecipients });
+});
+app.post('/api/email/recipients', (req, res) => {
+  const { email } = req.body;
+  if (!email || !email.includes('@')) return res.status(400).json({ success: false, error: 'Invalid email' });
+  if (!emailRecipients.includes(email)) emailRecipients.push(email);
+  res.json({ success: true, data: emailRecipients });
+});
+app.delete('/api/email/recipients/:email', (req, res) => {
+  const email = decodeURIComponent(req.params.email);
+  emailRecipients = emailRecipients.filter(e => e !== email);
+  res.json({ success: true, data: emailRecipients });
+});
 
 // Email summary
 app.get('/api/email/summary', async (req, res) => {
@@ -542,6 +556,19 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 const wss = new WebSocket.Server({ server, path: '/ws' });
 
 console.log('📡 WebSocket server initialized on path /ws');
+
+// Test email on startup
+(async () => {
+  try {
+    const nodemailer = require('nodemailer');
+    const t = nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_CONFIG.user, pass: EMAIL_CONFIG.password } });
+    await t.verify();
+    console.log('📧 ✅ Gmail SMTP connection verified successfully');
+  } catch (e) {
+    console.error('📧 ❌ Gmail SMTP verification FAILED:', e.message);
+    console.error('📧 ❌ Check that the app password is correct and 2FA is enabled on the Gmail account');
+  }
+})();
 
 wss.on('connection', (ws) => {
   console.log('📡 WebSocket client connected');
