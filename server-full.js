@@ -51,7 +51,7 @@ console.log(`  EMAIL_TO: ${process.env.EMAIL_TO}`);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
 
 // Configure multer for file uploads
 const upload = multer({
@@ -717,9 +717,9 @@ app.delete('/api/email/recipients/:email', async (req, res) => {
   }
 });
 
-// Main page
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public/index.html'));
+// Serve React app for all non-API routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend', 'dist', 'index.html'));
 });
 
 // Start HTTP server
