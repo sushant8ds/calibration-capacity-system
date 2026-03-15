@@ -445,9 +445,10 @@ app.delete('/api/gauges/:id', (req, res) => {
 // Update gauge
 app.put('/api/gauges/:id', (req, res) => {
   const now = new Date().toISOString();
+  const f = calcGaugeFields(req.body);
   const g = req.body;
-  db.run(`UPDATE gauge_profiles SET gauge_type=?, location=?, last_calibration_date=?, calibration_frequency=?, next_calibration_date=?, capacity_percentage=?, notes=?, last_modified_by=?, updated_at=? WHERE gauge_id=?`,
-    [g.gauge_type, g.location, g.last_calibration_date, g.calibration_frequency || g.calibration_interval_months, g.next_calibration_date, g.capacity_percentage, g.notes, g.last_modified_by||'Web Interface', now, req.params.id],
+  db.run(`UPDATE gauge_profiles SET gauge_type=?, location=?, last_calibration_date=?, calibration_frequency=?, next_calibration_date=?, produced_quantity=?, max_capacity=?, remaining_capacity=?, capacity_percentage=?, status=?, notes=?, last_modified_by=?, updated_at=? WHERE gauge_id=?`,
+    [g.gauge_type, g.location || '', f.lastCalStr, f.calibFreq, f.nextCalDate, f.producedQty, f.maxCapacity, f.remaining, f.capacityPct, f.status, g.notes || '', g.last_modified_by || 'Web Interface', now, req.params.id],
     function(err) {
       if (err) return res.status(500).json({ success: false, error: err.message });
       res.json({ success: true });
