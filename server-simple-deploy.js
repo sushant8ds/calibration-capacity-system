@@ -33,7 +33,7 @@ const EMAIL_CONFIG = {
   port: 587,
   secure: false,
   user: 'sushantds2003@gmail.com',
-  password: 'cebuquciloqihhdo',
+  password: 'huqetmjwgpdtfeex',
   from: 'sushantds2003@gmail.com',
   to: 'sushantds2003@gmail.com'
 };
