@@ -196,18 +196,28 @@ function renderGaugesTable() {
     }
     
     tbody.innerHTML = gauges.map(gauge => {
-        const usagePercentage = ((gauge.produced_quantity / gauge.max_capacity) * 100).toFixed(1);
-        const statusClass = `status-${gauge.status?.replace('_', '-')}`;
+        const produced = parseFloat(gauge.produced_quantity) || 0;
+        const maxCap = parseFloat(gauge.max_capacity) || 0;
+        const usagePercentage = maxCap > 0 ? ((produced / maxCap) * 100).toFixed(1) : '0.0';
+        const remaining = parseFloat(gauge.remaining_capacity);
+        const remainingDisplay = isNaN(remaining) ? 'N/A' : remaining.toFixed(2);
+        const statusVal = gauge.status || 'safe';
+        const statusClass = `status-${statusVal.replace(/_/g, '-')}`;
+        
+        const lastCal = gauge.last_calibration_date ? new Date(gauge.last_calibration_date) : null;
+        const lastCalDisplay = lastCal && !isNaN(lastCal) ? lastCal.toLocaleDateString() : 'N/A';
+        const nextCal = gauge.next_calibration_date ? new Date(gauge.next_calibration_date) : null;
+        const nextCalDisplay = nextCal && !isNaN(nextCal) ? nextCal.toLocaleDateString() : 'N/A';
         
         return `
             <tr>
                 <td><strong>${gauge.gauge_id}</strong></td>
-                <td>${gauge.gauge_type}</td>
-                <td><span class="status-badge ${statusClass}">${gauge.status?.replace('_', ' ')}</span></td>
-                <td>${gauge.remaining_capacity?.toFixed(2) || 'N/A'}</td>
+                <td>${gauge.gauge_type || 'N/A'}</td>
+                <td><span class="status-badge ${statusClass}">${statusVal.replace(/_/g, ' ')}</span></td>
+                <td>${remainingDisplay}</td>
                 <td>${usagePercentage}%</td>
-                <td>${new Date(gauge.last_calibration_date).toLocaleDateString()}</td>
-                <td>${gauge.next_calibration_date ? new Date(gauge.next_calibration_date).toLocaleDateString() : 'N/A'}</td>
+                <td>${lastCalDisplay}</td>
+                <td>${nextCalDisplay}</td>
                 <td>
                     <button class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;" onclick="editGauge('${gauge.gauge_id}')">Edit</button>
                     <button class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;" onclick="deleteGauge('${gauge.gauge_id}')">Delete</button>

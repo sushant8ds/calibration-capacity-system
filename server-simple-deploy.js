@@ -8,7 +8,6 @@ const multer = require('multer');
 const sqlite3 = require('sqlite3').verbose();
 const { v4: uuidv4 } = require('uuid');
 const WebSocket = require('ws');
-const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
 const crypto = require('crypto');
 
@@ -92,7 +91,19 @@ db.serialize(() => {
     updated_at TEXT
   )`);
 
-  // Migrate existing table to add missing columns if needed
+  // Persist recipients in a simple table
+  db.run(`CREATE TABLE IF NOT EXISTS email_recipients (
+    email TEXT PRIMARY KEY
+  )`);
+
+  // Seed default recipient if table is empty
+  db.get('SELECT COUNT(*) as cnt FROM email_recipients', (err, row) => {
+    if (!err && row.cnt === 0) {
+      db.run('INSERT OR IGNORE INTO email_recipients (email) VALUES (?)', [EMAIL_CONFIG.to]);
+    }
+  });
+
+  // Migrate existing gauge_profiles table — silently ignore duplicate column errors
   const migrationCols = [
     'calibration_frequency INTEGER',
     'monthly_usage REAL',
@@ -102,7 +113,7 @@ db.serialize(() => {
     'status TEXT'
   ];
   migrationCols.forEach(col => {
-    db.run(`ALTER TABLE gauge_profiles ADD COLUMN ${col}`, () => {/* ignore if already exists */});
+    db.run(`ALTER TABLE gauge_profiles ADD COLUMN ${col}`, (_err) => { /* ignore duplicate */ });
   });
 });
 
@@ -122,11 +133,18 @@ async function sendEmail(alert) {
   try {
     if (!EMAIL_CONFIG.resendApiKey) {
       console.error('📧 ❌ RESEND_API_KEY not set');
-      return { success: false, error: 'RESEND_API_KEY not configured' };
+      return { success: false, error: 'RESEND_API_KEY not configured. Add it in Render dashboard → Environment.' };
     }
     console.log('📧 Sending email via Resend...');
     const resend = new Resend(EMAIL_CONFIG.resendApiKey);
-    const toList = emailRecipients.length > 0 ? emailRecipients : [EMAIL_CONFIG.to];
+
+    // Load recipients from DB
+    const toList = await new Promise((resolve) => {
+      db.all('SELECT email FROM email_recipients', (err, rows) => {
+        if (err || !rows || rows.length === 0) resolve([EMAIL_CONFIG.to]);
+        else resolve(rows.map(r => r.email));
+      });
+    });
 
     const { data, error } = await resend.emails.send({
       from: EMAIL_CONFIG.from,
@@ -151,7 +169,6 @@ async function sendEmail(alert) {
     return { success: true, messageId: data.id };
   } catch (error) {
     console.error('📧 ❌ Email sending failed:', error.message);
-    console.error('📧 ❌ Full error:', JSON.stringify(error, null, 2));
     return { success: false, error: error.message };
   }
 }
@@ -213,7 +230,11 @@ app.post('/api/email/test', async (req, res) => {
     created_at: new Date().toISOString()
   };
   const result = await sendEmail(testAlert);
-  res.json({ success: true, data: { success: result.success, message: result.success ? 'Email sent successfully!' : `Failed: ${result.error}`, recipient: EMAIL_CONFIG.to } });
+  if (result.success) {
+    res.json({ success: true, data: { success: true, message: 'Email sent successfully!' } });
+  } else {
+    res.json({ success: true, data: { success: false, message: `Failed: ${result.error}` } });
+  }
 });
 
 // Gauges
@@ -226,54 +247,53 @@ app.get('/api/gauges', (req, res) => {
 
 app.post('/api/gauges', (req, res) => {
   const now = new Date().toISOString();
+  const f = calcGaugeFields(req.body);
   const profile = {
     gauge_id: req.body.gauge_id,
     gauge_type: req.body.gauge_type,
-    location: req.body.location,
-    last_calibration_date: req.body.last_calibration_date,
-    calibration_interval_months: req.body.calibration_interval_months,
-    next_calibration_date: req.body.next_calibration_date,
-    capacity_percentage: req.body.capacity_percentage,
-    notes: req.body.notes,
-    last_modified_by: req.body.last_modified_by || 'System',
+    location: req.body.location || '',
+    last_calibration_date: f.lastCalStr,
+    calibration_frequency: f.calibFreq,
+    next_calibration_date: f.nextCalDate,
+    produced_quantity: f.producedQty,
+    max_capacity: f.maxCapacity,
+    remaining_capacity: f.remaining,
+    capacity_percentage: f.capacityPct,
+    status: f.status,
+    notes: req.body.notes || '',
+    last_modified_by: req.body.last_modified_by || 'Web Interface',
     created_at: now,
     updated_at: now
   };
 
-  const stmt = db.prepare(`INSERT INTO gauge_profiles 
-    (gauge_id, gauge_type, location, last_calibration_date, calibration_interval_months, 
-     next_calibration_date, capacity_percentage, notes, last_modified_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  db.run(`INSERT OR REPLACE INTO gauge_profiles 
+    (gauge_id, gauge_type, location, last_calibration_date, calibration_frequency,
+     next_calibration_date, produced_quantity, max_capacity, remaining_capacity,
+     capacity_percentage, status, notes, last_modified_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [profile.gauge_id, profile.gauge_type, profile.location, profile.last_calibration_date,
+     profile.calibration_frequency, profile.next_calibration_date, profile.produced_quantity,
+     profile.max_capacity, profile.remaining_capacity, profile.capacity_percentage,
+     profile.status, profile.notes, profile.last_modified_by, profile.created_at, profile.updated_at],
+    function(err) {
+      if (err) return res.status(500).json({ success: false, error: err.message });
 
-  stmt.run([
-    profile.gauge_id, profile.gauge_type, profile.location, profile.last_calibration_date,
-    profile.calibration_interval_months, profile.next_calibration_date, profile.capacity_percentage,
-    profile.notes, profile.last_modified_by, profile.created_at, profile.updated_at
-  ], function(err) {
-    if (err) return res.status(500).json({ success: false, error: err.message });
+      if (f.daysUntilCal < 0) {
+        const alert = {
+          id: uuidv4(),
+          gauge_id: profile.gauge_id,
+          type: 'calibration_overdue',
+          severity: 'high',
+          message: `Gauge ${profile.gauge_id} calibration is ${Math.abs(f.daysUntilCal)} days overdue`,
+          created_at: now
+        };
+        db.run('INSERT OR IGNORE INTO alerts (id, gauge_id, type, severity, message, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          [alert.id, alert.gauge_id, alert.type, alert.severity, alert.message, alert.created_at]);
+        sendEmail(alert);
+      }
 
-    const daysUntil = profile.next_calibration_date
-      ? Math.ceil((new Date(profile.next_calibration_date) - new Date()) / 86400000)
-      : 999;
-
-    if (daysUntil <= 0) {
-      const alert = {
-        id: uuidv4(),
-        gauge_id: profile.gauge_id,
-        type: 'calibration_overdue',
-        severity: 'high',
-        message: `Gauge ${profile.gauge_id} calibration is ${Math.abs(daysUntil)} days overdue`,
-        created_at: now
-      };
-      const alertStmt = db.prepare('INSERT INTO alerts (id, gauge_id, type, severity, message, created_at) VALUES (?, ?, ?, ?, ?, ?)');
-      alertStmt.run([alert.id, alert.gauge_id, alert.type, alert.severity, alert.message, alert.created_at]);
-      alertStmt.finalize();
-      sendEmail(alert);
-    }
-
-    res.json({ success: true, data: profile });
-  });
-  stmt.finalize();
+      res.json({ success: true, data: profile });
+    });
 });
 
 // Alerts
@@ -477,34 +497,47 @@ app.post('/api/admin/reset', (req, res) => {
   });
 });
 
-// In-memory recipients list (persists for session, initialized from config)
-let emailRecipients = [EMAIL_CONFIG.to];
 
 // Email status
 app.get('/api/email/status', (req, res) => {
-  res.json({ success: true, data: { success: true, config: { user: EMAIL_CONFIG.user, recipients: emailRecipients.join(', ') }, message: 'Email configured' } });
+  db.all('SELECT email FROM email_recipients', (err, rows) => {
+    const recipients = rows ? rows.map(r => r.email).join(', ') : EMAIL_CONFIG.to;
+    const hasKey = !!EMAIL_CONFIG.resendApiKey;
+    res.json({ success: true, data: { success: hasKey, config: { user: EMAIL_CONFIG.user, recipients }, message: hasKey ? 'Email configured' : 'RESEND_API_KEY not set in Render environment' } });
+  });
 });
 
 // Email settings
 app.get('/api/email/settings', (req, res) => {
-  res.json({ success: true, data: { enabled: 1, smtp_host: EMAIL_CONFIG.host, smtp_port: EMAIL_CONFIG.port, smtp_user: EMAIL_CONFIG.user, from_email: EMAIL_CONFIG.from } });
+  res.json({ success: true, data: { enabled: 1, smtp_host: 'resend.com (HTTPS)', smtp_port: 443, smtp_user: EMAIL_CONFIG.user, from_email: EMAIL_CONFIG.from } });
 });
 app.put('/api/email/settings', (req, res) => res.json({ success: true }));
 
-// Email recipients - fully functional
+// Email recipients - DB-persisted
 app.get('/api/email/recipients', (req, res) => {
-  res.json({ success: true, data: emailRecipients });
+  db.all('SELECT email FROM email_recipients', (err, rows) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    res.json({ success: true, data: rows.map(r => r.email) });
+  });
 });
 app.post('/api/email/recipients', (req, res) => {
   const { email } = req.body;
   if (!email || !email.includes('@')) return res.status(400).json({ success: false, error: 'Invalid email' });
-  if (!emailRecipients.includes(email)) emailRecipients.push(email);
-  res.json({ success: true, data: emailRecipients });
+  db.run('INSERT OR IGNORE INTO email_recipients (email) VALUES (?)', [email], function(err) {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    db.all('SELECT email FROM email_recipients', (_e, rows) => {
+      res.json({ success: true, data: rows ? rows.map(r => r.email) : [] });
+    });
+  });
 });
 app.delete('/api/email/recipients/:email', (req, res) => {
   const email = decodeURIComponent(req.params.email);
-  emailRecipients = emailRecipients.filter(e => e !== email);
-  res.json({ success: true, data: emailRecipients });
+  db.run('DELETE FROM email_recipients WHERE email = ?', [email], function(err) {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    db.all('SELECT email FROM email_recipients', (_e, rows) => {
+      res.json({ success: true, data: rows ? rows.map(r => r.email) : [] });
+    });
+  });
 });
 
 // Email summary
