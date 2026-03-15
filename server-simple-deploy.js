@@ -53,11 +53,16 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS gauge_profiles (
     gauge_id TEXT PRIMARY KEY,
     gauge_type TEXT,
-    location TEXT,
+    calibration_frequency INTEGER,
     last_calibration_date TEXT,
-    calibration_interval_months INTEGER,
-    next_calibration_date TEXT,
+    monthly_usage REAL,
+    produced_quantity REAL,
+    max_capacity REAL,
+    remaining_capacity REAL,
     capacity_percentage REAL,
+    status TEXT,
+    next_calibration_date TEXT,
+    location TEXT,
     notes TEXT,
     last_modified_by TEXT,
     created_at TEXT,
@@ -88,6 +93,14 @@ db.serialize(() => {
     created_at TEXT,
     updated_at TEXT
   )`);
+
+  // Migrate existing table to add missing columns if needed
+  db.run(`ALTER TABLE gauge_profiles ADD COLUMN calibration_frequency INTEGER`).catch?.(() => {});
+  db.run(`ALTER TABLE gauge_profiles ADD COLUMN monthly_usage REAL`).catch?.(() => {});
+  db.run(`ALTER TABLE gauge_profiles ADD COLUMN produced_quantity REAL`).catch?.(() => {});
+  db.run(`ALTER TABLE gauge_profiles ADD COLUMN max_capacity REAL`).catch?.(() => {});
+  db.run(`ALTER TABLE gauge_profiles ADD COLUMN remaining_capacity REAL`).catch?.(() => {});
+  db.run(`ALTER TABLE gauge_profiles ADD COLUMN status TEXT`).catch?.(() => {});
 });
 
 // Middleware
@@ -284,18 +297,50 @@ app.get('/api/dashboard/stats', (req, res) => {
         upcoming_calibrations: []
       };
       gauges.forEach(g => {
-        const days = g.next_calibration_date
-          ? Math.ceil((new Date(g.next_calibration_date) - today) / 86400000)
-          : 999;
-        if (days < 0) stats.overdue_count++;
-        else if (days <= 30) stats.calibration_required_count++;
-        else if (days <= 90) stats.near_limit_count++;
+        const s = g.status || 'safe';
+        if (s === 'overdue') stats.overdue_count++;
+        else if (s === 'calibration_required') stats.calibration_required_count++;
+        else if (s === 'near_limit') stats.near_limit_count++;
         else stats.safe_count++;
       });
       res.json({ success: true, data: stats });
     });
   });
 });
+
+// Helper: calculate gauge status and derived fields
+function calcGaugeFields(row) {
+  const calibFreq = parseInt(row['Calibration frequency (months)'] || row.calibration_frequency || row['Calibration Interval (Months)'] || 12);
+  const lastCalStr = row['Last calibration date'] || row.last_calibration_date || row['Last Calibration Date'] || '';
+  const monthlyUsage = parseFloat(row['Monthly usage'] || row.monthly_usage || 0);
+  const producedQty = parseFloat(row['Produced quantity'] || row.produced_quantity || 0);
+  const maxCapacity = parseFloat(row['Maximum capacity'] || row.max_capacity || row['Max Capacity'] || 1);
+
+  // Calculate next calibration date
+  let nextCalDate = '';
+  if (lastCalStr) {
+    const lastCal = new Date(lastCalStr);
+    if (!isNaN(lastCal.getTime())) {
+      const next = new Date(lastCal);
+      next.setMonth(next.getMonth() + calibFreq);
+      nextCalDate = next.toISOString().split('T')[0];
+    }
+  }
+
+  // Calculate remaining capacity and percentage
+  const remaining = Math.max(0, maxCapacity - producedQty);
+  const capacityPct = maxCapacity > 0 ? (producedQty / maxCapacity) * 100 : 0;
+
+  // Calculate status
+  const today = new Date();
+  const daysUntilCal = nextCalDate ? Math.ceil((new Date(nextCalDate) - today) / 86400000) : 999;
+  let status = 'safe';
+  if (daysUntilCal < 0) status = 'overdue';
+  else if (daysUntilCal <= 30) status = 'calibration_required';
+  else if (capacityPct >= 80) status = 'near_limit';
+
+  return { calibFreq, lastCalStr, monthlyUsage, producedQty, maxCapacity, remaining, capacityPct, nextCalDate, status, daysUntilCal };
+}
 
 // Excel import
 app.post('/api/upload/import', upload.single('file'), (req, res) => {
@@ -306,31 +351,57 @@ app.post('/api/upload/import', upload.single('file'), (req, res) => {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet);
     const now = new Date().toISOString();
-    const stats = { total_rows: rows.length, inserted: 0, skipped: 0, errors: [] };
+    const stats = { total_rows: rows.length, inserted: 0, updated: 0, skipped: 0, errors: [] };
 
-    const stmt = db.prepare(`INSERT OR IGNORE INTO gauge_profiles 
-      (gauge_id, gauge_type, location, last_calibration_date, calibration_interval_months, 
-       next_calibration_date, capacity_percentage, notes, last_modified_by, created_at, updated_at) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const stmt = db.prepare(`INSERT OR REPLACE INTO gauge_profiles 
+      (gauge_id, gauge_type, calibration_frequency, last_calibration_date, monthly_usage,
+       produced_quantity, max_capacity, remaining_capacity, capacity_percentage, status,
+       next_calibration_date, location, notes, last_modified_by, created_at, updated_at) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
     rows.forEach((row, i) => {
-      const id = row.gauge_id || row['Gauge ID'];
-      if (!id) { stats.errors.push(`Row ${i + 2}: missing gauge_id`); return; }
+      const id = row['Gauge ID'] || row.gauge_id;
+      if (!id) { stats.errors.push(`Row ${i + 2}: missing Gauge ID`); return; }
+
+      const f = calcGaugeFields(row);
+      const modifiedBy = row['Last modified by'] || row.last_modified_by || 'Excel Import';
+
       stmt.run([
         id,
-        row.gauge_type || row['Gauge Type'] || '',
-        row.location || row['Location'] || '',
-        row.last_calibration_date || row['Last Calibration Date'] || '',
-        row.calibration_interval_months || row['Calibration Interval (Months)'] || 12,
-        row.next_calibration_date || row['Next Calibration Date'] || '',
-        row.capacity_percentage || row['Capacity %'] || 0,
-        row.notes || row['Notes'] || '',
-        'Excel Import', now, now
+        row['Gauge Type'] || row.gauge_type || '',
+        f.calibFreq,
+        f.lastCalStr,
+        f.monthlyUsage,
+        f.producedQty,
+        f.maxCapacity,
+        f.remaining,
+        f.capacityPct,
+        f.status,
+        f.nextCalDate,
+        row.location || '',
+        row.notes || '',
+        modifiedBy,
+        now, now
       ], function(err) {
         if (err) stats.errors.push(`Row ${i + 2}: ${err.message}`);
         else if (this.changes > 0) stats.inserted++;
         else stats.skipped++;
       });
+
+      // Create alert if overdue
+      if (f.daysUntilCal < 0) {
+        const alert = {
+          id: uuidv4(),
+          gauge_id: id,
+          type: 'calibration_overdue',
+          severity: 'high',
+          message: `Gauge ${id} calibration is ${Math.abs(f.daysUntilCal)} days overdue`,
+          created_at: now
+        };
+        db.run('INSERT OR IGNORE INTO alerts (id, gauge_id, type, severity, message, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          [alert.id, alert.gauge_id, alert.type, alert.severity, alert.message, alert.created_at]);
+        sendEmail(alert);
+      }
     });
 
     stmt.finalize(() => res.json({ success: true, message: 'Import successful', data: stats }));
