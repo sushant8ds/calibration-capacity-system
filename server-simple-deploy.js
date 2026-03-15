@@ -321,73 +321,73 @@ app.get('/api/alerts', (req, res) => {
   });
 });
 
-// Main page
-app.get('/', (req, res) => {
-  res.send(`
-    <html>
-      <head>
-        <title>Calibration Management System</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-          .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-          h1 { color: #333; text-align: center; }
-          .status { background: #e8f5e8; padding: 15px; border-radius: 5px; margin: 20px 0; }
-          .button { background: #007cba; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; margin: 10px; }
-          .button:hover { background: #005a87; }
-          .result { margin: 20px 0; padding: 15px; border-radius: 5px; }
-          .success { background: #d4edda; color: #155724; }
-          .error { background: #f8d7da; color: #721c24; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>🧪 Calibration & Production Capacity Management System</h1>
-          
-          <div class="status">
-            <h3>✅ System Status</h3>
-            <p>📊 <strong>Database:</strong> SQLite Connected</p>
-            <p>📧 <strong>Email:</strong> Gmail Configured (sushantds2003@gmail.com → 01fe23bcs086@kletech.ac.in)</p>
-            <p>🚀 <strong>Server:</strong> Running on Port ${PORT}</p>
-            <p>⏰ <strong>Time:</strong> ${new Date().toLocaleString()}</p>
-          </div>
-          
-          <div>
-            <h3>🧪 Test Email System</h3>
-            <button class="button" onclick="testEmail()">Send Test Email</button>
-            <div id="emailResult"></div>
-          </div>
-          
-          <div>
-            <h3>📊 API Endpoints</h3>
-            <p><strong>Health Check:</strong> <a href="/health">/health</a></p>
-            <p><strong>API Info:</strong> <a href="/api">/api</a></p>
-            <p><strong>Gauges:</strong> <a href="/api/gauges">/api/gauges</a></p>
-            <p><strong>Alerts:</strong> <a href="/api/alerts">/api/alerts</a></p>
-          </div>
-        </div>
-        
-        <script>
-          async function testEmail() {
-            const result = document.getElementById('emailResult');
-            result.innerHTML = '<p>Sending email...</p>';
-            
-            try {
-              const response = await fetch('/api/email/test', { method: 'POST' });
-              const data = await response.json();
-              
-              if (data.success && data.data.success) {
-                result.innerHTML = '<div class="result success">✅ ' + data.data.message + '<br>Message ID: ' + data.data.messageId + '</div>';
-              } else {
-                result.innerHTML = '<div class="result error">❌ ' + (data.data.message || data.error) + '</div>';
-              }
-            } catch (error) {
-              result.innerHTML = '<div class="result error">❌ Error: ' + error.message + '</div>';
-            }
-          }
-        </script>
-      </body>
-    </html>
-  `);
+// Dashboard stats
+app.get('/api/dashboard/stats', (req, res) => {
+  db.all('SELECT * FROM gauge_profiles', (err, gauges) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    db.all('SELECT * FROM alerts WHERE acknowledged = 0 ORDER BY created_at DESC LIMIT 10', (err2, alerts) => {
+      if (err2) return res.status(500).json({ success: false, error: err2.message });
+      const today = new Date();
+      const stats = { total_gauges: gauges.length, safe_count: 0, near_limit_count: 0, calibration_required_count: 0, overdue_count: 0, recent_alerts: alerts, upcoming_calibrations: [] };
+      gauges.forEach(g => {
+        const days = g.next_calibration_date ? Math.ceil((new Date(g.next_calibration_date) - today) / 86400000) : 999;
+        if (days < 0) stats.overdue_count++;
+        else if (days <= 30) stats.calibration_required_count++;
+        else if (days <= 90) stats.near_limit_count++;
+        else stats.safe_count++;
+      });
+      res.json({ success: true, data: stats });
+    });
+  });
+});
+
+// Upload/import Excel
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+app.post('/api/upload/import', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+  try {
+    const XLSX = require('xlsx');
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet);
+    const now = new Date().toISOString();
+    const stats = { total_rows: rows.length, inserted: 0, skipped: 0, errors: [] };
+    const stmt = db.prepare(`INSERT OR IGNORE INTO gauge_profiles (gauge_id, gauge_type, location, last_calibration_date, calibration_interval_months, next_calibration_date, capacity_percentage, notes, last_modified_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    rows.forEach((row, i) => {
+      const id = row.gauge_id || row['Gauge ID'] || row['gauge_id'];
+      if (!id) { stats.errors.push(`Row ${i+2}: missing gauge_id`); return; }
+      stmt.run([id, row.gauge_type||row['Gauge Type']||'', row.location||row['Location']||'', row.last_calibration_date||row['Last Calibration Date']||'', row.calibration_interval_months||row['Calibration Interval (Months)']||12, row.next_calibration_date||row['Next Calibration Date']||'', row.capacity_percentage||row['Capacity %']||0, row.notes||row['Notes']||'', 'Excel Import', now, now], function(err) {
+        if (err) stats.errors.push(`Row ${i+2}: ${err.message}`);
+        else if (this.changes > 0) stats.inserted++;
+        else stats.skipped++;
+      });
+    });
+    stmt.finalize(() => res.json({ success: true, message: 'Import successful', data: stats }));
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Upload template download
+app.get('/api/upload/template', (req, res) => {
+  try {
+    const XLSX = require('xlsx');
+    const ws = XLSX.utils.aoa_to_sheet([['gauge_id','gauge_type','location','last_calibration_date','calibration_interval_months','next_calibration_date','capacity_percentage','notes'],['GAUGE-001','Pressure','Lab A','2024-01-01',12,'2025-01-01',75,'Sample gauge']]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Gauges');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="gauge-import-template.xlsx"');
+    res.send(buf);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Serve React frontend
+app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend', 'dist', 'index.html'));
 });
 
 // Start HTTP server

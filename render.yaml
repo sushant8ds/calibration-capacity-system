@@ -4,8 +4,8 @@ services:
     env: node
     region: oregon
     plan: free
-    buildCommand: npm install && npx tsc && cd frontend && npm install && npm run build
-    startCommand: node server-full.js
+    buildCommand: npm install && cd frontend && npm install && npm run build
+    startCommand: node server-simple-deploy.js
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
